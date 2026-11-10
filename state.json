@@ -1,0 +1,88 @@
+{
+    "quizzes": [
+        {
+            "question": "Python에서 화면에 글자를 출력할 때 사용하는 함수는?",
+            "choices": [
+                "input()",
+                "print()",
+                "len()",
+                "type()"
+            ],
+            "answer": 2
+        },
+        {
+            "question": "문자열 자료형을 나타내는 것은?",
+            "choices": [
+                "int",
+                "bool",
+                "str",
+                "list"
+            ],
+            "answer": 3
+        },
+        {
+            "question": "숫자를 정수로 바꾸는 함수는?",
+            "choices": [
+                "str()",
+                "list()",
+                "int()",
+                "print()"
+            ],
+            "answer": 3
+        },
+        {
+            "question": "조건에 따라 실행할 코드를 나눌 때 사용하는 문법은?",
+            "choices": [
+                "if",
+                "for",
+                "import",
+                "class"
+            ],
+            "answer": 1
+        },
+        {
+            "question": "반복해서 코드를 실행할 때 사용하는 문법이 아닌 것은?",
+            "choices": [
+                "for",
+                "while",
+                "if",
+                "반복문"
+            ],
+            "answer": 3
+        },
+        {
+            "question": "여러 값을 순서대로 저장하는 자료형은?",
+            "choices": [
+                "bool",
+                "list",
+                "int",
+                "None"
+            ],
+            "answer": 2
+        },
+        {
+            "question": "키(key)와 값(value)을 짝으로 저장하는 자료형은?",
+            "choices": [
+                "dict",
+                "str",
+                "int",
+                "float"
+            ],
+            "answer": 1
+        },
+        {
+            "question": "Python 파일의 확장자는?",
+            "choices": [
+                ".py",
+                ".txt",
+                ".jpg",
+                ".docx"
+            ],
+            "answer": 1
+        }
+    ],
+    "best_score": 71,
+    "best_correct": 5,
+    "best_total": 7,
+    "has_played": true
+}
