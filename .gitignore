@@ -5,3 +5,7 @@ venv/
 .env
 .vscode/
 .DS_Store
+# Quiz game backup and temporary files
+state.backup.json
+state.json.tmp
+state.backup.json.tmp
