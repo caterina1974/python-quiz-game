@@ -4,13 +4,12 @@ Run with: py -X utf8 main.py
 """
 
 import json
+import os
 from pathlib import Path
 
 
-# state.json is always stored beside this main.py file (project root).
+# state.json and its backup are always stored beside this main.py file.
 STATE_FILE = Path(__file__).resolve().parent / "state.json"
-
-
 class Quiz:
     """One quiz question, its four choices, and its correct answer number."""
 
@@ -23,7 +22,11 @@ class Quiz:
         cleaned_choices = [str(choice).strip() for choice in choices]
         if any(not choice for choice in cleaned_choices):
             raise ValueError("선택지 내용은 비어 있을 수 없습니다.")
-        if isinstance(answer, bool) or not isinstance(answer, int) or answer not in range(1, 5):
+        if (
+            isinstance(answer, bool)
+            or not isinstance(answer, int)
+            or answer not in range(1, 5)
+        ):
             raise ValueError("정답 번호는 1부터 4까지여야 합니다.")
 
         self.question = question
@@ -60,9 +63,11 @@ class Quiz:
 
 
 class QuizGame:
-    """Manage the quiz list, menu, scores, and JSON file."""
+    """Manage the quiz list, menu, scores, and JSON files."""
 
-    def __init__(self):
+    def __init__(self, state_file=STATE_FILE):
+        self.state_file = Path(state_file)
+        self.backup_file = self.state_file.with_name("state.backup.json")
         self.quizzes = []
         self.best_score = 0  # percentage, from 0 to 100
         self.best_correct = 0
@@ -131,57 +136,160 @@ class QuizGame:
                 continue
             return number
 
+    @staticmethod
+    def _read_state_file(file_path):
+        """Read and validate a JSON state file before using it."""
+        with Path(file_path).open("r", encoding="utf-8") as file:
+            data = json.load(file)
+
+        if not isinstance(data, dict):
+            raise ValueError("저장 파일의 최상위 구조가 올바르지 않습니다.")
+
+        raw_quizzes = data.get("quizzes")
+        if not isinstance(raw_quizzes, list):
+            raise ValueError("quizzes 항목이 목록 형식이 아닙니다.")
+
+        loaded_quizzes = [Quiz.from_dict(item) for item in raw_quizzes]
+
+        best_score = data.get("best_score", 0)
+        best_correct = data.get("best_correct", 0)
+        best_total = data.get("best_total", 0)
+        has_played = data.get("has_played", False)
+
+        if (
+            isinstance(best_score, bool)
+            or not isinstance(best_score, (int, float))
+            or not 0 <= best_score <= 100
+        ):
+            raise ValueError("최고 점수 데이터가 올바르지 않습니다.")
+
+        for value in (best_correct, best_total):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError("최고 점수 상세 데이터가 올바르지 않습니다.")
+
+        if not isinstance(has_played, bool):
+            raise ValueError("게임 기록 여부가 올바르지 않습니다.")
+
+        return {
+            "quizzes": loaded_quizzes,
+            "best_score": int(best_score),
+            "best_correct": best_correct,
+            "best_total": best_total,
+            "has_played": has_played,
+        }
+
+    def _apply_state(self, data):
+        """Apply validated data to the current game."""
+        self.quizzes = data["quizzes"]
+        self.best_score = data["best_score"]
+        self.best_correct = data["best_correct"]
+        self.best_total = data["best_total"]
+        self.has_played = data["has_played"]
+
+    def _reset_to_defaults(self):
+        """Reset quiz data and scores to the initial state."""
+        self.quizzes = self.make_default_quizzes()
+        self.best_score = 0
+        self.best_correct = 0
+        self.best_total = 0
+        self.has_played = False
+
     def load_data(self):
-        """Load saved questions and score, or recover with default questions."""
-        if not STATE_FILE.exists():
-            print("📂 state.json이 없습니다. 기본 퀴즈로 시작합니다.")
-            self.quizzes = self.make_default_quizzes()
-            self.save_data(show_message=False)
+        """Load saved data, or ask whether to restore a backup or reset."""
+        try:
+            data = self._read_state_file(self.state_file)
+            self._apply_state(data)
+            print(
+                f"📂 저장된 데이터를 불러왔습니다. "
+                f"(퀴즈 {len(self.quizzes)}개)"
+            )
             return
+        except FileNotFoundError:
+            print("⚠️ state.json 파일을 찾을 수 없습니다.")
+        except (
+            OSError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            ValueError,
+            TypeError,
+            KeyError,
+        ) as error:
+            print(f"⚠️ state.json을 읽을 수 없습니다: {error}")
+
+        # If the main file is missing or damaged, first check the backup.
+        backup_data = None
+        if self.backup_file.exists():
+            try:
+                backup_data = self._read_state_file(self.backup_file)
+                print("📦 사용할 수 있는 백업 파일을 찾았습니다.")
+            except (
+                OSError,
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+                ValueError,
+                TypeError,
+                KeyError,
+            ) as error:
+                print(f"⚠️ 백업 파일도 사용할 수 없습니다: {error}")
+
+        if backup_data is not None:
+            print("\n데이터 복구 방법을 선택해 주세요.")
+            print("1. 백업 파일에서 복구")
+            print("2. 기본 퀴즈 데이터로 초기화")
+            print("3. 아무것도 변경하지 않고 종료")
+            choice = self.read_number("선택 (1-3): ", 1, 3)
+
+            if choice == 1:
+                self._apply_state(backup_data)
+                print("✅ 백업 파일의 데이터로 복구합니다.")
+                self.save_data(show_message=False)
+                return
+            if choice == 2:
+                self._reset_to_defaults()
+                print("🔄 기본 퀴즈 데이터로 초기화합니다.")
+                self.save_data(show_message=False)
+                return
+
+            print("복구를 취소했습니다. 파일은 변경하지 않았습니다.")
+            raise SystemExit(0)
+
+        # No usable backup is available.
+        if self.state_file.exists() or self.backup_file.exists():
+            print("\n사용할 수 있는 백업이 없습니다.")
+            print("1. 기본 퀴즈 데이터로 초기화")
+            print("2. 아무것도 변경하지 않고 종료")
+            choice = self.read_number("선택 (1-2): ", 1, 2)
+            if choice == 2:
+                print("초기화를 취소했습니다. 파일은 변경하지 않았습니다.")
+                raise SystemExit(0)
+        else:
+            print("📂 처음 실행합니다. 기본 퀴즈로 시작합니다.")
+
+        self._reset_to_defaults()
+        self.save_data(show_message=False)
+
+    @staticmethod
+    def _atomic_write_text(target_file, content):
+        """Write to a temporary file, then atomically replace the target."""
+        target_file = Path(target_file)
+        temp_file = target_file.with_name(target_file.name + ".tmp")
 
         try:
-            with STATE_FILE.open("r", encoding="utf-8") as file:
-                data = json.load(file)
-
-            if not isinstance(data, dict):
-                raise ValueError("저장 파일의 최상위 구조가 올바르지 않습니다.")
-            raw_quizzes = data.get("quizzes")
-            if not isinstance(raw_quizzes, list):
-                raise ValueError("quizzes 항목이 목록 형식이 아닙니다.")
-
-            loaded_quizzes = [Quiz.from_dict(item) for item in raw_quizzes]
-            best_score = data.get("best_score", 0)
-            best_correct = data.get("best_correct", 0)
-            best_total = data.get("best_total", 0)
-            has_played = data.get("has_played", False)
-
-            if isinstance(best_score, bool) or not isinstance(best_score, (int, float)) or not 0 <= best_score <= 100:
-                raise ValueError("최고 점수 데이터가 올바르지 않습니다.")
-            for value in (best_correct, best_total):
-                if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                    raise ValueError("최고 점수 상세 데이터가 올바르지 않습니다.")
-            if not isinstance(has_played, bool):
-                raise ValueError("게임 기록 여부가 올바르지 않습니다.")
-
-            self.quizzes = loaded_quizzes
-            self.best_score = int(best_score)
-            self.best_correct = best_correct
-            self.best_total = best_total
-            self.has_played = has_played
-            print(f"📂 저장된 데이터를 불러왔습니다. (퀴즈 {len(self.quizzes)}개)")
-
-        except (OSError, json.JSONDecodeError, ValueError, TypeError, KeyError) as error:
-            print(f"⚠️ 저장 파일을 읽을 수 없습니다: {error}")
-            print("기본 퀴즈 데이터로 초기화합니다.")
-            self.quizzes = self.make_default_quizzes()
-            self.best_score = 0
-            self.best_correct = 0
-            self.best_total = 0
-            self.has_played = False
-            self.save_data(show_message=False)
+            with temp_file.open("w", encoding="utf-8", newline="\n") as file:
+                file.write(content)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(temp_file, target_file)
+        finally:
+            # Remove an unused temporary file after either success or failure.
+            try:
+                if temp_file.exists():
+                    temp_file.unlink()
+            except OSError:
+                pass
 
     def save_data(self, show_message=True):
-        """Save quiz questions and best score as UTF-8 JSON."""
+        """Back up the last valid state, then safely replace state.json."""
         data = {
             "quizzes": [quiz.to_dict() for quiz in self.quizzes],
             "best_score": self.best_score,
@@ -189,14 +297,45 @@ class QuizGame:
             "best_total": self.best_total,
             "has_played": self.has_played,
         }
+        json_text = json.dumps(data, ensure_ascii=False, indent=4) + "\n"
+
+        backup_created = False
+
+        # Only back up the current file if it is valid JSON with valid fields.
+        if self.state_file.exists():
+            try:
+                self._read_state_file(self.state_file)
+            except (
+                OSError,
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+                ValueError,
+                TypeError,
+                KeyError,
+            ):
+                # Never replace a known-good backup with a damaged state file.
+                print(
+                    "⚠️ 기존 state.json이 유효하지 않아 새 백업으로 "
+                    "덮어쓰지 않습니다. 기존 백업은 유지합니다."
+                )
+            else:
+                try:
+                    previous_text = self.state_file.read_text(encoding="utf-8")
+                    self._atomic_write_text(self.backup_file, previous_text)
+                    backup_created = True
+                except OSError as error:
+                    print(f"⚠️ 이전 데이터 백업에 실패했습니다: {error}")
+
         try:
-            with STATE_FILE.open("w", encoding="utf-8") as file:
-                json.dump(data, file, ensure_ascii=False, indent=4)
+            self._atomic_write_text(self.state_file, json_text)
             if show_message:
-                print("💾 데이터가 state.json에 저장되었습니다.")
+                print("💾 데이터가 안전하게 저장되었습니다.")
+                if backup_created:
+                    print("📦 이전 데이터는 state.backup.json에 백업되었습니다.")
             return True
         except OSError as error:
             print(f"⚠️ 파일 저장 중 오류가 발생했습니다: {error}")
+            print("기존 state.json과 백업 파일을 확인해 주세요.")
             return False
 
     @staticmethod
@@ -295,12 +434,14 @@ class QuizGame:
 
 
 def main():
-    game = QuizGame()
+    game = None
     try:
+        game = QuizGame()
         game.run()
     except (KeyboardInterrupt, EOFError):
         print("\n\n⚠️ 입력이 중단되었습니다. 안전하게 종료합니다.")
-        game.save_data()
+        if game is not None:
+            game.save_data()
         print("프로그램을 종료했습니다.")
 
 
